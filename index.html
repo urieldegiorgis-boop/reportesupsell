@@ -42,6 +42,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;backgrou
 .table-wrap{overflow:auto;}
 .tbl{width:100%;border-collapse:collapse;font-size:12px;}
 .tbl th{padding:10px 14px;text-align:center;font-size:10px;font-weight:600;color:#111111;text-transform:uppercase;letter-spacing:.06em;border-bottom:0.5px solid var(--b1);background:var(--bg3);white-space:nowrap;}
+.tbl thead tr[style*="background:#111111"] th{background:#111111 !important;color:#ffffff !important;border-bottom:none;}
 .tbl td{padding:10px 14px;border-bottom:0.5px solid var(--b0);color:#111111;white-space:nowrap;font-size:13px;text-align:center;}
 .tbl tr:last-child td{border-bottom:none;}
 .tbl tbody tr:nth-child(odd) td{background:rgba(0,0,0,0.02);}
@@ -110,6 +111,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;backgrou
   <button class="tab" onclick="showTab('historial',2)">Historial</button>
   <button class="tab" onclick="showTab('config',3)">Configuración</button>
 </div>
+
 
 <!-- REPORTE ONBOARDING -->
 <div id="tab_onboarding" class="panel active">
@@ -209,6 +211,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;backgrou
       </div>
     </div>
     <div class="chart-wrap"><canvas id="dash-chart" role="img" aria-label="Gráfico KPIs Onboarding"></canvas></div>
+  </div>
+  <div class="card" id="dash-llamadas-card" style="display:none;">
+    <div class="card-title">Detalle de llamadas</div>
+    <div class="table-wrap"><table class="tbl"><thead id="dash-ll-thead"></thead><tbody id="dash-ll-tbody"></tbody></table></div>
   </div>
 </div>
 
@@ -585,16 +591,16 @@ function renderDash(){
   var gCP=pct(tot.cancel,tot.calls),gSR=pct(tot.live,tot.calls),gCC=pct(tot.cierres,tot.live),gAC=pct(tot.cierres,tot.calls);
   _kpiIdx=0;
   ge('dash-global-kpi').innerHTML=
-    kpiBox('Total Calls',tot.calls,'var(--t1)')+
+    kpiBox('Total Calls',tot.calls,'var(--blue)')+
     kpiBox('Live Calls',tot.live,'var(--blue)')+
     kpiBox('Cancel %',fmtPct(gCP),colPct(100-(gCP||0),70,50))+
     kpiBox('Show Rate',fmtPct(gSR),colPct(gSR,70,50))+
-    kpiBox('No Show',tot.noshow,tot.noshow>0?'var(--amber)':'var(--t3)')+
+    kpiBox('No Show',tot.noshow,tot.noshow>0?'var(--amber)':'var(--blue)')+
     kpiBox('Ofertas',tot.ofertas,'var(--amber)')+
     kpiBox('Cierres',tot.cierres,'var(--green)')+
     kpiBox('Call/Cierre',fmtPct(gCC),colPct(gCC,30,15))+
     kpiBox('All/Cierre',fmtPct(gAC),colPct(gAC,20,10));
-  ge('dash-thead').innerHTML='<tr><th style="text-align:left">Onboarding</th><th>Calls</th><th>Live</th><th>Cancel</th><th>Cancel %</th><th>No Show</th><th>Show Rate</th><th>Ofertas</th><th>Cierres</th><th>Call/Cierre</th><th>All/Cierre</th></tr>';
+  ge('dash-thead').innerHTML='<tr style="background:#111111;"><th style="text-align:left;color:#ffffff;">Onboarding</th><th style="color:#ffffff;">Calls</th><th style="color:#ffffff;">Live</th><th style="color:#ffffff;">Cancel</th><th style="color:#ffffff;">Cancel %</th><th style="color:#ffffff;">No Show</th><th style="color:#ffffff;">Show Rate</th><th style="color:#ffffff;">Ofertas</th><th style="color:#ffffff;">Cierres</th><th style="color:#ffffff;">Call/Cierre</th><th style="color:#ffffff;">All/Cierre</th></tr>';
   var tbodyHTML='', nombres=[];
   Object.keys(personas).forEach(n=>{
     var agg={calls:0,cancel:0,live:0,noshow:0,o1:0,cierres:0};
@@ -620,6 +626,7 @@ function renderDash(){
   if(csel) csel.innerHTML='<option value="todos">Todos</option>'+nombres.map(n=>'<option value="'+n+'"'+(n===prev?' selected':'')+'>'+n+'</option>').join('');
   window._chartPersonas=personas;
   renderChartOnboarding();
+  renderLlamadasDash(reps);
 }
 function renderChartOnboarding(){
   var personas=window._chartPersonas||{};
@@ -662,6 +669,36 @@ function renderChartOnboarding(){
   });
 }
 
+// ── Llamadas en Dashboard ──
+function renderLlamadasDash(reps){
+  var card = ge('dash-llamadas-card');
+  if(!card) return;
+  // Recoger todas las llamadas de todos los reportes filtrados
+  var todas = [];
+  reps.forEach(function(r){
+    var lls = r.llamadas;
+    if(typeof lls==='string'){try{lls=JSON.parse(lls);}catch(e){lls=[];}}
+    if(!Array.isArray(lls)) lls=[];
+    lls.forEach(function(l){
+      todas.push({quien:r.quien, fecha:r.fecha, nombre:l.nombre||'', email:l.email||'', cerro:l.cerro||'', nota:l.nota||''});
+    });
+  });
+  if(!todas.length){card.style.display='none';return;}
+  card.style.display='block';
+  ge('dash-ll-thead').innerHTML='<tr style="background:#111111;"><th style="color:#ffffff;text-align:left;">Onboarding</th><th style="color:#ffffff;">Fecha</th><th style="color:#ffffff;">Nombre</th><th style="color:#ffffff;">Email</th><th style="color:#ffffff;">¿Cerró?</th><th style="color:#ffffff;text-align:left;">Notas</th></tr>';
+  ge('dash-ll-tbody').innerHTML=todas.map(function(l){
+    var cerroColor = l.cerro==='Si'?'var(--green)':l.cerro==='No'?'var(--red)':'var(--t3)';
+    return '<tr>'+
+      '<td class="t1" style="text-align:left;">'+l.quien+'</td>'+
+      '<td>'+fmtDate(l.fecha)+'</td>'+
+      '<td style="text-align:left;">'+escHtml(l.nombre)+'</td>'+
+      '<td style="text-align:left;">'+escHtml(l.email)+'</td>'+
+      '<td style="color:'+cerroColor+';font-weight:600;">'+( l.cerro||'—')+'</td>'+
+      '<td style="text-align:left;white-space:normal;max-width:200px;">'+escHtml(l.nota)+'</td>'+
+      '</tr>';
+  }).join('');
+}
+
 // ── Historial ──
 function renderHistorial(){
   var hoy=today(), d=new Date();
@@ -694,7 +731,7 @@ function renderHistorial(){
   if(psel) psel.innerHTML='<option value="">Todos</option>'+personas.map(n=>'<option value="'+n+'"'+(n===prev?' selected':'')+'>'+n+'</option>').join('');
   var filtro=psel?psel.value:'';
   var filtered=filtro?reps.filter(r=>r.quien===filtro):reps;
-  ge('hist-thead').innerHTML='<tr><th>Fecha</th><th>Onboarding</th><th>Calls</th><th>Cancel</th><th>No Show</th><th>Show Rate</th><th>Ofertas</th><th>Cierres</th><th>Call/Cierre</th><th>All/Cierre</th><th></th></tr>';
+  ge('hist-thead').innerHTML='<tr style="background:#111111;"><th style="color:#ffffff;">Fecha</th><th style="color:#ffffff;">Onboarding</th><th style="color:#ffffff;">Calls</th><th style="color:#ffffff;">Cancel</th><th style="color:#ffffff;">No Show</th><th style="color:#ffffff;">Show Rate</th><th style="color:#ffffff;">Ofertas</th><th style="color:#ffffff;">Cierres</th><th style="color:#ffffff;">Call/Cierre</th><th style="color:#ffffff;">All/Cierre</th><th style="color:#ffffff;"></th></tr>';
   ge('hist-tbody').innerHTML=filtered.map(r=>{
     var k=calcKPI(r),rts=r.ts||0;
     return '<tr><td>'+fmtDate(r.fecha)+'</td><td class="t1">'+r.quien+'</td>'+
