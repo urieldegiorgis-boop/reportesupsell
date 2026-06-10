@@ -450,9 +450,9 @@ async function guardarReporte(){
   var yaExiste = appData.reportes.find(function(x){return x.quien===quien&&x.fecha===fecha;});
   if(yaExiste){alert('⚠️ Ya tienes un reporte guardado para esta fecha.');return;}
   var r={
-    closer:quien, quien:quien, fecha:fecha, ts:Date.now(),
+    quien:quien, fecha:fecha, ts:Date.now(),
     calls:gv('cr-calls'), cancel:gv('cr-cancel'), live:gv('cr-live'), noshow:gv('cr-noshow'),
-    o1:gv('cr-o1'), o2:0, d1:0, d2:0, cierres:gv('cr-cierres'),
+    o1:gv('cr-o1'), cierres:gv('cr-cierres'),
     llamadas:JSON.stringify(recogerLlamadas())
   };
   try{
