@@ -486,6 +486,7 @@ function syncLlamadas(){
     l.cerro  = getLlamadaVal(l.id,'cerro');
     l.upsell = getLlamadaVal(l.id,'upsell');
     l.nota   = getLlamadaVal(l.id,'nota');
+    l.fathom = getLlamadaVal(l.id,'fathom');
   });
 }
 function getLlamadaVal(id,field){
@@ -494,7 +495,7 @@ function getLlamadaVal(id,field){
 function addLlamada(){
   syncLlamadas();
   var id=Date.now();
-  crLlamadas.push({id,nombre:'',email:'',cerro:'',upsell:'',nota:''});
+  crLlamadas.push({id,nombre:'',email:'',cerro:'',upsell:'',nota:'',fathom:''});
   renderLlamadas();
   setTimeout(function(){
     var list=ge('cr-llamadas-list');
@@ -536,7 +537,8 @@ function renderLlamadas(){
           '<option value="ECOMMERCE"'+(l.upsell==='ECOMMERCE'?' selected':'')+'>ECOMMERCE</option>'+
         '</select>'+
       '</div>'+
-      '<div class="fld" style="margin-bottom:4px;"><label>Notas</label><textarea id="ll_'+l.id+'_nota" placeholder="Observaciones...">'+escHtml(l.nota||'')+'</textarea></div>'+
+      '<div class="fld" style="margin-bottom:8px;"><label>Notas</label><textarea id="ll_'+l.id+'_nota" placeholder="Observaciones...">'+escHtml(l.nota||'')+'</textarea></div>'+
+      '<div class="fld" style="margin-bottom:4px;"><label>Fathom</label><input id="ll_'+l.id+'_fathom" type="url" placeholder="https://fathom.video/..." value="'+escHtml(l.fathom||'')+'"></div>'+
     '</div>';
   }).join('');
 }
@@ -547,7 +549,8 @@ function recogerLlamadas(){
     email:getLlamadaVal(l.id,'email'),
     cerro:getLlamadaVal(l.id,'cerro'),
     upsell:getLlamadaVal(l.id,'upsell'),
-    nota:getLlamadaVal(l.id,'nota')
+    nota:getLlamadaVal(l.id,'nota'),
+    fathom:getLlamadaVal(l.id,'fathom')
   }));
 }
 function escHtml(s){ return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
@@ -692,12 +695,12 @@ function renderLlamadasDash(reps){
     if(typeof lls==='string'){try{lls=JSON.parse(lls);}catch(e){lls=[];}}
     if(!Array.isArray(lls)) lls=[];
     lls.forEach(function(l){
-      todas.push({quien:r.quien, fecha:r.fecha, nombre:l.nombre||'', email:l.email||'', cerro:l.cerro||'', upsell:l.upsell||'', nota:l.nota||''});
+      todas.push({quien:r.quien, fecha:r.fecha, nombre:l.nombre||'', email:l.email||'', cerro:l.cerro||'', upsell:l.upsell||'', nota:l.nota||'', fathom:l.fathom||''});
     });
   });
   if(!todas.length){card.style.display='none';return;}
   card.style.display='block';
-  ge('dash-ll-thead').innerHTML='<tr style="background:#111111;"><th style="color:#ffffff;text-align:left;">Onboarding</th><th style="color:#ffffff;">Fecha</th><th style="color:#ffffff;">Nombre</th><th style="color:#ffffff;">Email</th><th style="color:#ffffff;">¿Cerró?</th><th style="color:#ffffff;">Upsell</th><th style="color:#ffffff;text-align:left;">Notas</th></tr>';
+  ge('dash-ll-thead').innerHTML='<tr style="background:#111111;"><th style="color:#ffffff;text-align:left;">Onboarding</th><th style="color:#ffffff;">Fecha</th><th style="color:#ffffff;">Nombre</th><th style="color:#ffffff;">Email</th><th style="color:#ffffff;">¿Cerró?</th><th style="color:#ffffff;">Upsell</th><th style="color:#ffffff;text-align:left;">Notas</th><th style="color:#ffffff;">Fathom</th></tr>';
   ge('dash-ll-tbody').innerHTML=todas.map(function(l){
     var cerroColor = l.cerro==='Si'?'var(--green)':l.cerro==='No'?'var(--red)':'var(--t3)';
     return '<tr>'+
@@ -708,6 +711,7 @@ function renderLlamadasDash(reps){
       '<td style="color:'+cerroColor+';font-weight:600;">'+( l.cerro||'—')+'</td>'+
       '<td>'+(l.upsell?'<span style="display:inline-block;padding:2px 8px;border-radius:20px;background:rgba(0,0,0,0.08);font-size:11px;font-weight:600;">'+escHtml(l.upsell)+'</span>':'—')+'</td>'+
       '<td style="text-align:left;white-space:normal;max-width:200px;">'+escHtml(l.nota)+'</td>'+
+      '<td>'+(l.fathom?'<a href="'+escHtml(l.fathom)+'" target="_blank" rel="noopener" style="color:var(--blue);font-weight:600;text-decoration:none;">Ver ↗</a>':'—')+'</td>'+
       '</tr>';
   }).join('');
 }
@@ -793,7 +797,8 @@ function abrirEdicion(nombre,fecha){
       '<div class="frow" style="margin-bottom:6px;"><div class="fld"><label>Nombre</label><input value="'+escHtml(l.nombre||'')+'" id="em_ll_'+i+'_nombre"></div><div class="fld"><label>Email</label><input value="'+escHtml(l.email||'')+'" id="em_ll_'+i+'_email"></div></div>'+
       '<div class="fld" style="margin-bottom:6px;"><label>¿Cerró?</label><select id="em_ll_'+i+'_cerro"><option value="">—</option><option value="Si"'+(l.cerro==='Si'?' selected':'')+'>Sí</option><option value="No"'+(l.cerro==='No'?' selected':'')+'>No</option></select></div>'+
       '<div class="fld" style="margin-bottom:6px;"><label>Upsell</label><select id="em_ll_'+i+'_upsell"><option value="">—</option><option value="VENTAS"'+(l.upsell==='VENTAS'?' selected':'')+'>VENTAS</option><option value="IA"'+(l.upsell==='IA'?' selected':'')+'>IA</option><option value="MARCA PERSONAL"'+(l.upsell==='MARCA PERSONAL'?' selected':'')+'>MARCA PERSONAL</option><option value="ECOMMERCE"'+(l.upsell==='ECOMMERCE'?' selected':'')+'>ECOMMERCE</option></select></div>'+
-      '<div class="fld"><label>Notas</label><textarea id="em_ll_'+i+'_nota">'+escHtml(l.nota||'')+'</textarea></div>'+
+      '<div class="fld" style="margin-bottom:6px;"><label>Notas</label><textarea id="em_ll_'+i+'_nota">'+escHtml(l.nota||'')+'</textarea></div>'+
+      '<div class="fld"><label>Fathom</label><input type="url" id="em_ll_'+i+'_fathom" placeholder="https://fathom.video/..." value="'+escHtml(l.fathom||'')+'"></div>'+
     '</div>').join(''):
     '<div style="font-size:12px;color:var(--t3);padding:8px 0;">Sin llamadas registradas.</div>');
   _editData._lls=lls;
@@ -808,7 +813,8 @@ async function guardarEdicion(){
     email:ge('em_ll_'+i+'_email')?ge('em_ll_'+i+'_email').value:l.email,
     cerro:ge('em_ll_'+i+'_cerro')?ge('em_ll_'+i+'_cerro').value:l.cerro,
     upsell:ge('em_ll_'+i+'_upsell')?ge('em_ll_'+i+'_upsell').value:l.upsell,
-    nota:ge('em_ll_'+i+'_nota')?ge('em_ll_'+i+'_nota').value:l.nota
+    nota:ge('em_ll_'+i+'_nota')?ge('em_ll_'+i+'_nota').value:l.nota,
+    fathom:ge('em_ll_'+i+'_fathom')?ge('em_ll_'+i+'_fathom').value:(l.fathom||'')
   }));
   var updated={...appData.reportes[idx],
     calls:parseFloat(ge('em-calls').value)||0,cancel:parseFloat(ge('em-cancel').value)||0,
