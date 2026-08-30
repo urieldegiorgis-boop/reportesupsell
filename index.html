@@ -299,7 +299,7 @@ var SB_URL    = 'https://hseluvpwqjgallfyzori.supabase.co';
 var SB_KEY    = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhzZWx1dnB3cWpnYWxsZnl6b3JpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU3MjIxNjgsImV4cCI6MjA5MTI5ODE2OH0.hZ57PMADQPaqISd5ugWozVDQQHiR61aoPSQp1-mP-6s';
 var SB_CFG_ID = 3; // ID distinto para no pisar el cfg del original
 
-var DEFAULT_CFG = { onboarding: [], cfgpwd: '39366915' };
+var DEFAULT_CFG = { onboarding: ['Irene','Noelia'], cfgpwd: '39366915' };
 var appData = { cfg: JSON.parse(JSON.stringify(DEFAULT_CFG)), reportes: [] };
 
 var chartInst = null;
@@ -354,11 +354,25 @@ async function loadData(){
 async function saveCfg(){
   var str = JSON.stringify({cfg:appData.cfg});
   try{
-    var patch = await fetch(SB_URL+'/rest/v1/appdata?id=eq.'+SB_CFG_ID,{method:'PATCH',headers:{...SB_H,'Prefer':'return=minimal'},body:JSON.stringify({value:str})});
-    if(patch.status===404||patch.status===0){
-      await fetch(SB_URL+'/rest/v1/appdata',{method:'POST',headers:{...SB_H,'Prefer':'return=minimal'},body:JSON.stringify({id:SB_CFG_ID,value:str})});
+    // Upsert real: si la fila id=SB_CFG_ID no existe la crea, y si existe la actualiza.
+    // Antes se hacia PATCH y se esperaba un 404 para crearla, pero PostgREST devuelve
+    // 204 aunque no haya actualizado ninguna fila, asi que la config nunca se guardaba.
+    var res = await fetch(SB_URL+'/rest/v1/appdata',{
+      method:'POST',
+      headers:{...SB_H,'Prefer':'resolution=merge-duplicates,return=minimal'},
+      body:JSON.stringify({id:SB_CFG_ID, value:str})
+    });
+    if(!res.ok){
+      var txt='';
+      try{ txt = await res.text(); }catch(e){}
+      alert('No se ha podido guardar la configuracion ('+res.status+').\n\n'+txt);
+      return false;
     }
-  }catch(e){}
+    return true;
+  }catch(e){
+    alert('No se ha podido guardar la configuracion: sin conexion.');
+    return false;
+  }
 }
 
 // ── KPI ──
@@ -861,7 +875,9 @@ function addPersona(){ if(!appData.cfg.onboarding)appData.cfg.onboarding=[]; app
 function rmPersona(idx){ appData.cfg.onboarding.splice(idx,1); renderCfg(); buildSelects(); }
 async function guardarCfg(){
   var nc=ge('cnuevacfg').value; if(nc) appData.cfg.cfgpwd=nc;
-  await saveCfg(); buildSelects(); renderCfg();
+  var okSave = await saveCfg();
+  buildSelects(); renderCfg();
+  if(!okSave) return;   // si fallo, no enseñamos "Guardado"
   var ok=ge('cfg-ok'); ok.style.display='inline'; setTimeout(()=>ok.style.display='none',2500);
   ge('cnuevacfg').value='';
 }
