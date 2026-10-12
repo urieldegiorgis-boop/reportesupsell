@@ -295,11 +295,11 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;backgrou
 <script>
 // ── Config ──
 var STORE_KEY = 'lathos_onboarding_v1';
-var SB_URL    = 'https://hseluvpwqjgallfyzori.supabase.co';
-var SB_KEY    = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhzZWx1dnB3cWpnYWxsZnl6b3JpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU3MjIxNjgsImV4cCI6MjA5MTI5ODE2OH0.hZ57PMADQPaqISd5ugWozVDQQHiR61aoPSQp1-mP-6s';
-var SB_CFG_ID = 3; // ID distinto para no pisar el cfg del original
+// La URL y la clave de Supabase ya no viven aqui: el navegador no habla con
+// Supabase directamente. Todo pasa por /api/config y /api/reportes, que usan
+// la clave de servicio guardada en las variables de entorno de Vercel.
 
-var DEFAULT_CFG = { onboarding: ['Irene','Noelia'], cfgpwd: '39366915' };
+var DEFAULT_CFG = { onboarding: ['Irene','Noelia','Ivan P.'], cfgpwd: '39366915' };
 var appData = { cfg: JSON.parse(JSON.stringify(DEFAULT_CFG)), reportes: [] };
 
 var chartInst = null;
@@ -329,39 +329,124 @@ function kpiBox(lbl,val,color){
 }
 
 // ── Supabase ──
-var SB_H = {'apikey':SB_KEY,'Authorization':'Bearer '+SB_KEY,'Content-Type':'application/json'};
+
+// ── Contrasena de la app ────────────────────────────────────────────────
+// La tabla `appdata` esta cerrada con RLS, asi que el navegador ya no la lee
+// directamente: se la pide a /api/config, que valida la contrasena en el
+// servidor. La contrasena es la misma del Hub: si la app va dentro del iframe
+// del Hub, la hereda por postMessage; si alguien abre la URL suelta, se la
+// pedimos. Sin contrasena no se ve nada.
+var APP_PASS = null;
+function appPassGet(){ return APP_PASS; }
+function appPassSet(v){ APP_PASS = v; }
+
+function appPassFromParent(){
+  return new Promise(function(resolve){
+    if(window.parent === window){ resolve(null); return; }   // no estamos en un iframe
+    var done = false;
+    function onMsg(ev){
+      var d = ev.data;
+      if(!d || d.t !== 'hub-pass') return;
+      if(done) return;
+      done = true;
+      window.removeEventListener('message', onMsg);
+      resolve(d.pass || null);
+    }
+    window.addEventListener('message', onMsg);
+    try{ window.parent.postMessage({ t:'hub-pass-request' }, '*'); }catch(e){}
+    setTimeout(function(){
+      if(done) return;
+      done = true;
+      window.removeEventListener('message', onMsg);
+      resolve(null);
+    }, 2000);
+  });
+}
+
+async function ensureAppPass(){
+  if(appPassGet()) return appPassGet();
+  var heredada = await appPassFromParent();
+  if(heredada){ appPassSet(heredada); return heredada; }
+  var pw = prompt('\uD83D\uDD12 Contrase\u00f1a del Hub:');
+  if(pw) appPassSet(pw);
+  return appPassGet();
+}
 
 async function loadData(){
-  // cfg
-  try{
-    var r = await fetch(SB_URL+'/rest/v1/appdata?id=eq.'+SB_CFG_ID+'&select=value',{headers:{'apikey':SB_KEY,'Authorization':'Bearer '+SB_KEY}});
-    var rows = await r.json();
-    if(rows&&rows.length>0&&rows[0].value){
-      var p = JSON.parse(rows[0].value);
-      appData.cfg = p.cfg || JSON.parse(JSON.stringify(DEFAULT_CFG));
-    }
-  }catch(e){}
+  // cfg  →  por servidor, la clave con permisos vive en Vercel
+  var cfgOK = false;
+  for(var intento=0; intento<3; intento++){
+    var pass = await ensureAppPass();
+    if(!pass) break;                       // el usuario cancelo
+    try{
+      var r = await fetch('/api/config', { headers:{ 'x-app-pass': pass } });
+      if(r.status === 401){ appPassSet(null); alert('Contrase\u00f1a incorrecta'); continue; }
+      if(!r.ok) break;
+      var j = await r.json();
+      if(j && j.value){
+        var p = JSON.parse(j.value);
+        appData.cfg = p.cfg || JSON.parse(JSON.stringify(DEFAULT_CFG));
+      }
+      cfgOK = true;
+      break;
+    }catch(e){ break; }                    // fallo de red: no borramos la clave
+  }
+  if(!cfgOK) console.warn('No se ha podido cargar la configuracion');
   if(!appData.cfg) appData.cfg = JSON.parse(JSON.stringify(DEFAULT_CFG));
 
-  // reportes onboarding
+  // reportes onboarding  →  tambien por servidor
   try{
-    var rc = await fetch(SB_URL+'/rest/v1/reportes_onboarding?select=*&order=fecha.desc',{headers:{'apikey':SB_KEY,'Authorization':'Bearer '+SB_KEY}});
-    var data = await rc.json();
-    appData.reportes = Array.isArray(data) ? data : [];
+    var pass2 = appPassGet();
+    if(pass2){
+      var rc = await fetch('/api/reportes', { headers:{ 'x-app-pass': pass2 } });
+      if(rc.ok){
+        var j2 = await rc.json();
+        appData.reportes = Array.isArray(j2.data) ? j2.data : [];
+      } else { appData.reportes=[]; }
+    } else { appData.reportes=[]; }
   }catch(e){ appData.reportes=[]; }
+}
+
+// Helper para las escrituras de reportes. Devuelve el JSON o null si algo falla,
+// avisando al usuario en vez de fallar en silencio como hacia antes.
+async function repApi(body){
+  var pass = await ensureAppPass();
+  if(!pass){ alert('Sin contrase\u00f1a no se puede guardar.'); return null; }
+  try{
+    var r = await fetch('/api/reportes',{
+      method:'POST',
+      headers:{ 'Content-Type':'application/json', 'x-app-pass':pass },
+      body: JSON.stringify(body)
+    });
+    if(r.status === 401){ appPassSet(null); alert('Contrase\u00f1a incorrecta.'); return null; }
+    if(!r.ok){
+      var txt='';
+      try{ txt = await r.text(); }catch(e){}
+      alert('Error del servidor ('+r.status+').\n\n'+txt);
+      return null;
+    }
+    return await r.json();
+  }catch(e){
+    alert('Sin conexion. No se ha guardado.');
+    return null;
+  }
 }
 
 async function saveCfg(){
   var str = JSON.stringify({cfg:appData.cfg});
+  var pass = await ensureAppPass();
+  if(!pass){ alert('Sin contrase\u00f1a no se puede guardar.'); return false; }
   try{
-    // Upsert real: si la fila id=SB_CFG_ID no existe la crea, y si existe la actualiza.
-    // Antes se hacia PATCH y se esperaba un 404 para crearla, pero PostgREST devuelve
-    // 204 aunque no haya actualizado ninguna fila, asi que la config nunca se guardaba.
-    var res = await fetch(SB_URL+'/rest/v1/appdata',{
+    var res = await fetch('/api/config',{
       method:'POST',
-      headers:{...SB_H,'Prefer':'resolution=merge-duplicates,return=minimal'},
-      body:JSON.stringify({id:SB_CFG_ID, value:str})
+      headers:{ 'Content-Type':'application/json', 'x-app-pass':pass },
+      body: JSON.stringify({ value: str })
     });
+    if(res.status === 401){
+      appPassSet(null);
+      alert('Contrase\u00f1a incorrecta: no se ha guardado.');
+      return false;
+    }
     if(!res.ok){
       var txt='';
       try{ txt = await res.text(); }catch(e){}
@@ -475,16 +560,9 @@ async function guardarReporte(){
     o1:gv('cr-o1'), cierres:gv('cr-cierres'),
     llamadas:JSON.stringify(recogerLlamadas())
   };
-  try{
-    var res=await fetch(SB_URL+'/rest/v1/reportes_onboarding',{
-      method:'POST',
-      headers:{...SB_H,'Prefer':'return=representation'},
-      body:JSON.stringify(r)
-    });
-    if(!res.ok){alert('Error al guardar: '+(await res.text()));return;}
-    var saved=await res.json();
-    appData.reportes.unshift(saved[0]||r);
-  }catch(e){alert('Error de conexión.');return;}
+  var out = await repApi({ action:'insert', row:r });
+  if(!out) return;
+  appData.reportes.unshift(out.data||r);
   var ok=ge('cr-ok'); ok.style.display='inline'; setTimeout(()=>ok.style.display='none',2500);
   ['cr-calls','cr-cancel','cr-live','cr-noshow','cr-o1','cr-cierres'].forEach(id=>{var el=ge(id);if(el)el.value='';});
   crLlamadas=[]; renderLlamadas();
@@ -780,9 +858,8 @@ function renderHistorial(){
 
 async function borrarRep(ts){
   if(!confirm('¿Borrar este reporte?'))return;
-  try{
-    await fetch(SB_URL+'/rest/v1/reportes_onboarding?ts=eq.'+ts,{method:'DELETE',headers:{...SB_H,'Prefer':'return=minimal'}});
-  }catch(e){}
+  var out = await repApi({ action:'delete', ts:ts });
+  if(!out) return;
   appData.reportes=appData.reportes.filter(r=>r.ts!==ts);
   renderHistorial();
 }
@@ -836,11 +913,8 @@ async function guardarEdicion(){
     o1:parseFloat(ge('em-o1').value)||0,cierres:parseFloat(ge('em-cierres').value)||0,
     llamadas:JSON.stringify(lls)
   };
-  try{
-    await fetch(SB_URL+'/rest/v1/reportes_onboarding?ts=eq.'+updated.ts,{
-      method:'PATCH',headers:{...SB_H,'Prefer':'return=minimal'},body:JSON.stringify(updated)
-    });
-  }catch(e){}
+  var out = await repApi({ action:'update', ts:updated.ts, row:updated });
+  if(!out) return;
   appData.reportes[idx]=updated;
   cerrarModal();
   if(ge('cr-quien').value===updated.quien) renderCal(updated.quien);
