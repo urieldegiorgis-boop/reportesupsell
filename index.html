@@ -536,8 +536,9 @@ function onSelOnboarding(){
 // ── Cold caller (Ivan P.) ──────────────────────────────────────────────
 // Quien aparece aqui ve el bloque "Llamadas del día" encima del reporte de onboarding.
 // Los datos van a la tabla reportes_cc (la misma que usa el reporte de closer/setter/cold caller).
-var CC_PERSONAS = ['Ivan P.'];
-function esCC(n){ return CC_PERSONAS.indexOf(n) !== -1; }
+var CC_PERSONAS = ['ivan p'];   // se compara sin tildes ni mayusculas: vale "Ivan P.", "Iván P", "Ivan Puertas"...
+function _norm(t){ return String(t||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[.]/g,'').trim(); }
+function esCC(n){ var x=_norm(n); return !!x && CC_PERSONAS.some(function(p){ return x.indexOf(p)===0; }); }
 appData.reportes_cc = [];
 
 async function ccDb(path, method, body, prefer){
