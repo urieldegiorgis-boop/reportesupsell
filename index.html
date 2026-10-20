@@ -121,6 +121,29 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;backgrou
       <option value="">— Selecciona tu nombre —</option>
     </select>
   </div>
+  <!-- COLD CALLER (solo para las personas de CC_PERSONAS, p. ej. Ivan P.) -->
+  <div class="card" id="cc-card" style="display:none;">
+    <div class="card-title">Llamadas del día (cold caller) – <span id="cc-nombre-lbl" style="color:var(--t1);"></span></div>
+    <div class="fld"><label>Fecha</label><input type="date" id="cc-fecha"></div>
+    <div class="frow3">
+      <div class="fld"><label>Assigned Leads</label><input type="number" id="cc-assigned" min="0" placeholder="0" oninput="updateCCPreview()"></div>
+      <div class="fld"><label>Valid Leads</label><input type="number" id="cc-valid" min="0" placeholder="0" oninput="updateCCPreview()"></div>
+      <div class="fld"><label>Attempts</label><input type="number" id="cc-attempts" min="0" placeholder="0" oninput="updateCCPreview()"></div>
+    </div>
+    <div class="frow3">
+      <div class="fld"><label>Responses</label><input type="number" id="cc-responses" min="0" placeholder="0" oninput="updateCCPreview()"></div>
+      <div class="fld"><label>Convos</label><input type="number" id="cc-convos" min="0" placeholder="0" oninput="updateCCPreview()"></div>
+      <div class="fld"><label>Offers</label><input type="number" id="cc-offers" min="0" placeholder="0" oninput="updateCCPreview()"></div>
+    </div>
+    <div class="frow3">
+      <div class="fld"><label>Booked</label><input type="number" id="cc-booked" min="0" placeholder="0" oninput="updateCCPreview()"></div>
+    </div>
+    <div id="cc-preview" style="display:none;margin-top:1rem"><div class="stats-row" id="cc-kpi-row"></div></div>
+    <div class="bbar" style="margin-top:1rem;">
+      <button class="bgrn" onclick="guardarCC()">Guardar llamadas del día</button>
+      <span class="sbadge" id="cc-ok">✓ Guardado</span>
+    </div>
+  </div>
   <div class="card">
     <div class="card-title">Reporte diario – <span id="cr-nombre-lbl" style="color:var(--t3);">selecciona tu nombre</span></div>
     <div class="fld"><label>Fecha</label><input type="date" id="cr-fecha"></div>
@@ -337,8 +360,15 @@ function kpiBox(lbl,val,color){
 // del Hub, la hereda por postMessage; si alguien abre la URL suelta, se la
 // pedimos. Sin contrasena no se ve nada.
 var APP_PASS = null;
-function appPassGet(){ return APP_PASS; }
-function appPassSet(v){ APP_PASS = v; }
+function appPassGet(){
+  if(APP_PASS) return APP_PASS;
+  try{ APP_PASS = sessionStorage.getItem('onb_pass') || null; }catch(e){}
+  return APP_PASS;
+}
+function appPassSet(v){
+  APP_PASS = v;
+  try{ if(v) sessionStorage.setItem('onb_pass', v); else sessionStorage.removeItem('onb_pass'); }catch(e){}
+}
 
 function appPassFromParent(){
   return new Promise(function(resolve){
@@ -492,6 +522,7 @@ function buildSelects(){
 
 function onSelOnboarding(){
   var n = ge('cr-quien').value;
+  onSelCC(n);
   ge('cr-nombre-lbl').textContent = n||'selecciona tu nombre';
   ge('cr-nombre-lbl').style.color = n?'var(--t1)':'var(--t3)';
   ['cr-calls','cr-cancel','cr-live','cr-noshow','cr-o1','cr-cierres'].forEach(id=>{var el=ge(id);if(el)el.value='';});
@@ -499,6 +530,87 @@ function onSelOnboarding(){
   ge('cr-preview').style.display='none';
   if(n){ ge('cr-cal-card').style.display='block'; calMes=new Date(); renderCal(n); }
   else ge('cr-cal-card').style.display='none';
+}
+
+
+// ── Cold caller (Ivan P.) ──────────────────────────────────────────────
+// Quien aparece aqui ve el bloque "Llamadas del día" encima del reporte de onboarding.
+// Los datos van a la tabla reportes_cc (la misma que usa el reporte de closer/setter/cold caller).
+var CC_PERSONAS = ['Ivan P.'];
+function esCC(n){ return CC_PERSONAS.indexOf(n) !== -1; }
+appData.reportes_cc = [];
+
+async function ccDb(path, method, body, prefer){
+  var pass = await ensureAppPass();
+  if(!pass) return null;
+  try{
+    var r = await fetch('/api/db', {
+      method:'POST',
+      headers:{ 'Content-Type':'application/json', 'x-hub-pass': pass },
+      body: JSON.stringify({ path:path, method:method, body:body||null, prefer:prefer||null })
+    });
+    if(r.status === 401){ appPassSet(null); alert('Contrase\u00f1a incorrecta.'); return null; }
+    return r;
+  }catch(e){ alert('Sin conexion. No se ha guardado.'); return null; }
+}
+async function cargarCC(){
+  var r = await ccDb('reportes_cc?select=*&order=fecha.desc','GET');
+  if(r && r.ok){ try{ var j = await r.json(); appData.reportes_cc = Array.isArray(j)?j:[]; }catch(e){} }
+}
+function calcCCKPI(r){
+  var a=+(r.assigned||0),v=+(r.valid||0),at=+(r.attempts||0),rs=+(r.responses||0),
+      cv=+(r.convos||0),of=+(r.offers||0),bk=+(r.booked||0);
+  return { booked:bk, respPct:pct(rs,v), convoPct:pct(cv,rs), offerPct:pct(of,cv),
+           agendaPct:pct(bk,of), validBook:pct(bk,v) };
+}
+function onSelCC(n){
+  var card = ge('cc-card');
+  if(!card) return;
+  if(esCC(n)){
+    card.style.display = 'block';
+    ge('cc-nombre-lbl').textContent = n;
+    if(!ge('cc-fecha').value) ge('cc-fecha').value = today();
+    ['cc-assigned','cc-valid','cc-attempts','cc-responses','cc-convos','cc-offers','cc-booked'].forEach(function(id){ge(id).value='';});
+    ge('cc-preview').style.display = 'none';
+  } else {
+    card.style.display = 'none';
+  }
+}
+function updateCCPreview(){
+  var r={assigned:gv('cc-assigned'),valid:gv('cc-valid'),attempts:gv('cc-attempts'),
+         responses:gv('cc-responses'),convos:gv('cc-convos'),offers:gv('cc-offers'),booked:gv('cc-booked')};
+  if(!Object.keys(r).some(function(k){return r[k]>0;})){ ge('cc-preview').style.display='none'; return; }
+  var k = calcCCKPI(r); _kpiIdx = 0;
+  ge('cc-kpi-row').innerHTML =
+    kpiBox('Booked',k.booked,'var(--green)')+
+    kpiBox('Resp/Valid%',fmtPct(k.respPct),colPct(k.respPct,50,30))+
+    kpiBox('Convo%',fmtPct(k.convoPct),colPct(k.convoPct,50,25))+
+    kpiBox('Offer%',fmtPct(k.offerPct),colPct(k.offerPct,75,65))+
+    kpiBox('Agenda%',fmtPct(k.agendaPct),colPct(k.agendaPct,40,20))+
+    kpiBox('Valid\u2192Book%',fmtPct(k.validBook),colPct(k.validBook,15,8));
+  ge('cc-preview').style.display = 'block';
+}
+async function guardarCC(){
+  var quien = ge('cr-quien').value;
+  if(!esCC(quien)){ alert('Selecciona tu nombre primero.'); return; }
+  var fecha = ge('cc-fecha').value || today();
+  var ya = appData.reportes_cc.find(function(x){return x.quien===quien && x.fecha===fecha;});
+  if(ya){
+    if(!confirm('Ya hay llamadas guardadas para esta fecha. \u00bfSobreescribir?')) return;
+    var del = await ccDb('reportes_cc?quien=eq.'+encodeURIComponent(quien)+'&fecha=eq.'+fecha,'DELETE',null,'return=minimal');
+    if(!del || !del.ok){ alert('No se ha podido sobreescribir el reporte anterior.'); return; }
+  }
+  var r = { quien:quien, fecha:fecha, ts:Date.now(),
+    assigned:gv('cc-assigned'), valid:gv('cc-valid'), attempts:gv('cc-attempts'),
+    responses:gv('cc-responses'), convos:gv('cc-convos'), offers:gv('cc-offers'), booked:gv('cc-booked') };
+  var res = await ccDb('reportes_cc','POST',r,'return=representation');
+  if(!res) return;
+  if(!res.ok){ var t=''; try{t=await res.text();}catch(e){} alert('Error al guardar ('+res.status+').\n\n'+t); return; }
+  appData.reportes_cc = appData.reportes_cc.filter(function(x){return !(x.quien===quien && x.fecha===fecha);});
+  appData.reportes_cc.unshift(r);
+  var ok = ge('cc-ok'); ok.style.display='inline'; setTimeout(function(){ok.style.display='none';},2500);
+  ['cc-assigned','cc-valid','cc-attempts','cc-responses','cc-convos','cc-offers','cc-booked'].forEach(function(id){ge(id).value='';});
+  ge('cc-preview').style.display='none';
 }
 
 // ── Calendario ──
@@ -967,6 +1079,7 @@ function borrarTodo(){
   ge('hoy-lbl').textContent=d.toLocaleDateString('es-ES',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
   ge('cr-fecha').value=today();
   await loadData();
+  cargarCC();
   buildSelects();
   crLlamadas=[]; renderLlamadas();
 })();
