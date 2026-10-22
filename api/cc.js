@@ -38,6 +38,13 @@ module.exports = async function handler(req, res){
       if(!i.ok) return res.status(502).json({ error:'insert', detalle: await i.text() });
       return res.status(200).json({ ok:true, data: await i.json() });
     }
+    if(req.method === 'DELETE'){
+      const q = req.query || {};
+      if(!PERMITIDOS.includes(q.quien)) return res.status(400).json({ error:'quien no permitido' });
+      if(!/^\d{4}-\d{2}-\d{2}$/.test(q.fecha||'')) return res.status(400).json({ error:'fecha' });
+      const d = await fetch(base+'?quien=eq.'+encodeURIComponent(q.quien)+'&fecha=eq.'+q.fecha, { method:'DELETE', headers:{...H, Prefer:'return=minimal'} });
+      return res.status(d.ok?200:502).json({ ok:d.ok });
+    }
     return res.status(405).json({ error:'method' });
   }catch(e){
     return res.status(500).json({ error:'server' });
