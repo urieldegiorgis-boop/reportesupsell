@@ -267,6 +267,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;backgrou
     <div class="card-title">Historial de reportes – Onboarding</div>
     <div class="table-wrap"><table class="tbl"><thead id="hist-thead"></thead><tbody id="hist-tbody"></tbody></table></div>
   </div>
+  <div class="card" id="hist-cc-card">
+    <div class="card-title">Historial de llamadas – Cold caller</div>
+    <div class="table-wrap"><table class="tbl"><thead id="hist-cc-thead"></thead><tbody id="hist-cc-tbody"></tbody></table></div>
+  </div>
 </div>
 
 <!-- CONFIG -->
@@ -510,7 +514,7 @@ function showTab(id,idx){
   ge('tab_'+id).classList.add('active');
   document.querySelectorAll('.tab')[idx].classList.add('active');
   if(id==='dashboard') renderDash();
-  if(id==='historial') renderHistorial();
+  if(id==='historial'){ renderHistorial(); cargarCCHist(); }
   if(id!=='config') lockCfg();
 }
 
@@ -963,6 +967,67 @@ function renderHistorial(){
       '<td style="color:'+colPct(k.allCierre,20,10)+'">'+fmtPct(k.allCierre)+'</td>'+
       '<td><button class="ibtn" onclick="borrarRep('+rts+')">×</button></td></tr>';
   }).join('')||'<tr><td colspan="11" class="empty">Sin reportes</td></tr>';
+  renderCCHist();
+}
+
+// ── Historial de cold caller ────────────────────────────────────────────
+function enPeriodoHist(f, periodo){
+  if(!f) return false;
+  var hoy=today(), d=new Date();
+  function addDH(n){var r=new Date();r.setDate(r.getDate()+n);return r.toISOString().slice(0,10);}
+  function iso(x){return x.getFullYear()+'-'+String(x.getMonth()+1).padStart(2,'0')+'-'+String(x.getDate()).padStart(2,'0');}
+  if(periodo==='hoy') return f===hoy;
+  if(periodo==='ayer') return f===addDH(-1);
+  if(periodo==='3dias') return f>=addDH(-2)&&f<=hoy;
+  if(periodo==='7dias') return f>=addDH(-6)&&f<=hoy;
+  if(periodo==='semana_ant'||periodo==='semana'){
+    var dow=d.getDay(), diff=d.getDate()-dow+(dow===0?-6:1);
+    var lun=new Date(d.getFullYear(),d.getMonth(),diff);
+    if(periodo==='semana') return f>=iso(lun)&&f<=hoy;
+    var lunA=new Date(lun); lunA.setDate(lunA.getDate()-7);
+    var domA=new Date(lunA); domA.setDate(domA.getDate()+6);
+    return f>=iso(lunA)&&f<=iso(domA);
+  }
+  if(periodo==='mes') return f.slice(0,7)===hoy.slice(0,7);
+  if(periodo==='3meses') return f>=addDH(-90);
+  if(periodo==='6meses') return f>=addDH(-180);
+  if(periodo==='anio') return f.slice(0,4)===hoy.slice(0,4);
+  return true;
+}
+async function cargarCCHist(){
+  var out = await ccApi('GET','quien='+encodeURIComponent('Ivan P.'));
+  if(out && Array.isArray(out.data)){ ccReportes = out.data; }
+  renderCCHist();
+}
+function renderCCHist(){
+  var th=ge('hist-cc-thead'), tb=ge('hist-cc-tbody');
+  if(!th||!tb) return;
+  var periodo = ge('hist-periodo') ? ge('hist-periodo').value : 'todo';
+  var filtro = ge('hist-persona') ? ge('hist-persona').value : '';
+  var rows = ccReportes.filter(function(r){ return enPeriodoHist(r.fecha, periodo); });
+  if(filtro && ccKey(filtro)!==ccKey('Ivan P.')) rows = [];
+  var H = ['Fecha','Cold caller','Assigned','Valid','Attempts','Resp','Convos','Offers','Booked','Resp/Valid%','Convo%','Offer%','Agenda%',''];
+  th.innerHTML = '<tr style="background:#111111;">'+H.map(function(h){return '<th style="color:#ffffff;">'+h+'</th>';}).join('')+'</tr>';
+  rows.sort(function(a,b){ return (b.fecha||'').localeCompare(a.fecha||'') || (b.ts||0)-(a.ts||0); });
+  tb.innerHTML = rows.map(function(r){
+    var k = calcCCKPI(r);
+    return '<tr><td>'+fmtDate(r.fecha)+'</td><td class="t1">'+r.quien+'</td>'+
+      '<td>'+(r.assigned||0)+'</td><td>'+(r.valid||0)+'</td><td>'+(r.attempts||0)+'</td>'+
+      '<td>'+(r.responses||0)+'</td><td>'+(r.convos||0)+'</td><td>'+(r.offers||0)+'</td>'+
+      '<td style="color:var(--green);font-weight:600">'+(r.booked||0)+'</td>'+
+      '<td style="color:'+colPct(k.respPct,50,30)+'">'+fmtPct(k.respPct)+'</td>'+
+      '<td style="color:'+colPct(k.convoPct,50,25)+'">'+fmtPct(k.convoPct)+'</td>'+
+      '<td style="color:'+colPct(k.offerPct,75,65)+'">'+fmtPct(k.offerPct)+'</td>'+
+      '<td style="color:'+colPct(k.agendaPct,40,20)+'">'+fmtPct(k.agendaPct)+'</td>'+
+      '<td><button class="ibtn" onclick="borrarCC(\''+r.fecha+'\')">\u00d7</button></td></tr>';
+  }).join('') || '<tr><td colspan="14" class="empty">Sin llamadas de cold caller</td></tr>';
+}
+async function borrarCC(fecha){
+  if(!confirm('\u00bfBorrar las llamadas de cold caller del '+fmtDate(fecha)+'?')) return;
+  var out = await ccApi('DELETE','quien='+encodeURIComponent('Ivan P.')+'&fecha='+encodeURIComponent(fecha));
+  if(!out) return;
+  ccReportes = ccReportes.filter(function(r){ return r.fecha!==fecha; });
+  renderCCHist();
 }
 
 async function borrarRep(ts){
