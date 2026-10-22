@@ -121,7 +121,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;backgrou
       <option value="">— Selecciona tu nombre —</option>
     </select>
   </div>
-  <!-- COLD CALLER (solo para las personas de CC_PERSONAS, p. ej. Ivan P.) -->
+  <!-- COLD CALLER: solo se muestra para quien este en CC_PERSONAS (Ivan P.) -->
   <div class="card" id="cc-card" style="display:none;">
     <div class="card-title">Llamadas del día (cold caller) – <span id="cc-nombre-lbl" style="color:var(--t1);"></span></div>
     <div class="fld"><label>Fecha</label><input type="date" id="cc-fecha"></div>
@@ -534,53 +534,56 @@ function onSelOnboarding(){
 
 
 // ── Cold caller (Ivan P.) ──────────────────────────────────────────────
-// Quien aparece aqui ve el bloque "Llamadas del día" encima del reporte de onboarding.
-// Los datos van a la tabla reportes_cc (la misma que usa el reporte de closer/setter/cold caller).
-var CC_PERSONAS = ['ivan p'];   // se compara sin tildes ni mayusculas: vale "Ivan P.", "Iván P", "Ivan Puertas"...
-function _norm(t){ return String(t||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[.]/g,'').trim(); }
-function esCC(n){ var x=_norm(n); return !!x && CC_PERSONAS.some(function(p){ return x.indexOf(p)===0; }); }
-appData.reportes_cc = [];
+// Quien este aqui ve "Llamadas del dia" encima del reporte de onboarding.
+// Se guarda en la tabla reportes_cc (la del reporte de cold callers) a traves de /api/cc.
+// Se compara sin mayusculas ni punto final, asi "Ivan P" e "Ivan P." valen igual.
+var CC_PERSONAS = { 'ivan p': 'Ivan P.' };
+function ccKey(n){ return String(n||'').trim().toLowerCase().replace(/\.+$/,''); }
+function esCC(n){ return !!CC_PERSONAS[ccKey(n)]; }
+function ccNombre(n){ return CC_PERSONAS[ccKey(n)] || n; }
+var ccReportes = [];
 
-async function ccDb(path, method, body, prefer){
+async function ccApi(method, params, body){
   var pass = await ensureAppPass();
-  if(!pass) return null;
+  if(!pass){ alert('Sin contrase\u00f1a no se puede guardar.'); return null; }
   try{
-    var r = await fetch('/api/db', {
-      method:'POST',
-      headers:{ 'Content-Type':'application/json', 'x-hub-pass': pass },
-      body: JSON.stringify({ path:path, method:method, body:body||null, prefer:prefer||null })
+    var url = '/api/cc' + (params ? '?' + params : '');
+    var r = await fetch(url, {
+      method: method,
+      headers: { 'Content-Type':'application/json', 'x-app-pass': pass },
+      body: body ? JSON.stringify(body) : undefined
     });
     if(r.status === 401){ appPassSet(null); alert('Contrase\u00f1a incorrecta.'); return null; }
-    return r;
+    if(!r.ok){
+      var t=''; try{ t = await r.text(); }catch(e){}
+      alert('Error del servidor ('+r.status+').\n\n'+t);
+      return null;
+    }
+    return await r.json();
   }catch(e){ alert('Sin conexion. No se ha guardado.'); return null; }
 }
-async function cargarCC(){
-  var r = await ccDb('reportes_cc?select=*&order=fecha.desc','GET');
-  if(r && r.ok){ try{ var j = await r.json(); appData.reportes_cc = Array.isArray(j)?j:[]; }catch(e){} }
-}
 function calcCCKPI(r){
-  var a=+(r.assigned||0),v=+(r.valid||0),at=+(r.attempts||0),rs=+(r.responses||0),
-      cv=+(r.convos||0),of=+(r.offers||0),bk=+(r.booked||0);
-  return { booked:bk, respPct:pct(rs,v), convoPct:pct(cv,rs), offerPct:pct(of,cv),
-           agendaPct:pct(bk,of), validBook:pct(bk,v) };
+  var v=+(r.valid||0),rs=+(r.responses||0),cv=+(r.convos||0),of=+(r.offers||0),bk=+(r.booked||0);
+  return { booked:bk, respPct:pct(rs,v), convoPct:pct(cv,rs), offerPct:pct(of,cv), agendaPct:pct(bk,of), validBook:pct(bk,v) };
 }
+var CC_IDS = ['cc-assigned','cc-valid','cc-attempts','cc-responses','cc-convos','cc-offers','cc-booked'];
 function onSelCC(n){
   var card = ge('cc-card');
   if(!card) return;
   if(esCC(n)){
     card.style.display = 'block';
-    ge('cc-nombre-lbl').textContent = n;
-    if(!ge('cc-fecha').value) ge('cc-fecha').value = today();
-    ['cc-assigned','cc-valid','cc-attempts','cc-responses','cc-convos','cc-offers','cc-booked'].forEach(function(id){ge(id).value='';});
+    ge('cc-nombre-lbl').textContent = ccNombre(n);
+    ge('cc-fecha').value = today();
+    CC_IDS.forEach(function(id){ ge(id).value=''; });
     ge('cc-preview').style.display = 'none';
   } else {
     card.style.display = 'none';
   }
 }
 function updateCCPreview(){
-  var r={assigned:gv('cc-assigned'),valid:gv('cc-valid'),attempts:gv('cc-attempts'),
-         responses:gv('cc-responses'),convos:gv('cc-convos'),offers:gv('cc-offers'),booked:gv('cc-booked')};
-  if(!Object.keys(r).some(function(k){return r[k]>0;})){ ge('cc-preview').style.display='none'; return; }
+  var r={valid:gv('cc-valid'),responses:gv('cc-responses'),convos:gv('cc-convos'),offers:gv('cc-offers'),booked:gv('cc-booked')};
+  var any = CC_IDS.some(function(id){ return gv(id)>0; });
+  if(!any){ ge('cc-preview').style.display='none'; return; }
   var k = calcCCKPI(r); _kpiIdx = 0;
   ge('cc-kpi-row').innerHTML =
     kpiBox('Booked',k.booked,'var(--green)')+
@@ -592,25 +595,18 @@ function updateCCPreview(){
   ge('cc-preview').style.display = 'block';
 }
 async function guardarCC(){
-  var quien = ge('cr-quien').value;
-  if(!esCC(quien)){ alert('Selecciona tu nombre primero.'); return; }
-  var fecha = ge('cc-fecha').value || today();
-  var ya = appData.reportes_cc.find(function(x){return x.quien===quien && x.fecha===fecha;});
-  if(ya){
-    if(!confirm('Ya hay llamadas guardadas para esta fecha. \u00bfSobreescribir?')) return;
-    var del = await ccDb('reportes_cc?quien=eq.'+encodeURIComponent(quien)+'&fecha=eq.'+fecha,'DELETE',null,'return=minimal');
-    if(!del || !del.ok){ alert('No se ha podido sobreescribir el reporte anterior.'); return; }
-  }
+  var sel = ge('cr-quien').value;
+  if(!esCC(sel)){ alert('Selecciona tu nombre primero.'); return; }
+  var quien = ccNombre(sel), fecha = ge('cc-fecha').value || today();
   var r = { quien:quien, fecha:fecha, ts:Date.now(),
     assigned:gv('cc-assigned'), valid:gv('cc-valid'), attempts:gv('cc-attempts'),
     responses:gv('cc-responses'), convos:gv('cc-convos'), offers:gv('cc-offers'), booked:gv('cc-booked') };
-  var res = await ccDb('reportes_cc','POST',r,'return=representation');
+  if(r.valid>r.assigned && r.assigned>0){ if(!confirm('Valid Leads es mayor que Assigned Leads. \u00bfGuardar igualmente?')) return; }
+  // si ya hay un reporte de ese dia, el servidor lo sustituye
+  var res = await ccApi('POST', '', r);
   if(!res) return;
-  if(!res.ok){ var t=''; try{t=await res.text();}catch(e){} alert('Error al guardar ('+res.status+').\n\n'+t); return; }
-  appData.reportes_cc = appData.reportes_cc.filter(function(x){return !(x.quien===quien && x.fecha===fecha);});
-  appData.reportes_cc.unshift(r);
-  var ok = ge('cc-ok'); ok.style.display='inline'; setTimeout(function(){ok.style.display='none';},2500);
-  ['cc-assigned','cc-valid','cc-attempts','cc-responses','cc-convos','cc-offers','cc-booked'].forEach(function(id){ge(id).value='';});
+  var ok = ge('cc-ok'); ok.style.display='inline'; setTimeout(function(){ ok.style.display='none'; },2500);
+  CC_IDS.forEach(function(id){ ge(id).value=''; });
   ge('cc-preview').style.display='none';
 }
 
@@ -1080,7 +1076,6 @@ function borrarTodo(){
   ge('hoy-lbl').textContent=d.toLocaleDateString('es-ES',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
   ge('cr-fecha').value=today();
   await loadData();
-  cargarCC();
   buildSelects();
   crLlamadas=[]; renderLlamadas();
 })();
